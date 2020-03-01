@@ -124,10 +124,14 @@ void read_iblock(struct inode *in, int blk_num) {
 }
 
 void change_bitmap(uint32_t block_num, uint32_t* bitmap) {
-    char *p = new char;
-    memcpy(p, bitmap + block_num/8, sizeof(char));
+    auto *p = new uint8_t;
+    pread64(indev, p, sizeof(uint8_t), *bitmap * BLKSIZE + block_num/8);
+    cout << "Before " << *p;
+
     *p &= ~(1<<(block_num%8));
-    memcpy(bitmap + block_num/8, p, sizeof(char));
+    pwrite64(indev, p, sizeof(uint8_t), *bitmap * BLKSIZE + block_num/8);
+    cout << " After " <<*p << endl;
+
     delete p;
 }
 
@@ -138,6 +142,7 @@ void hide_iblock(struct inode *in, int blk_num, uint32_t* bitmap) {
         pos = in->i_block[blk_num];
     }
     else if (blk_num <= 11 + link_in_blk) {
+        change_bitmap(in->i_block[12], bitmap);
         auto *pos1 = new uint32_t;
 
         pos  = (in->i_block[12]) * BLKSIZE + (blk_num - 12) * sizeof(uint32_t);
@@ -146,6 +151,7 @@ void hide_iblock(struct inode *in, int blk_num, uint32_t* bitmap) {
         delete pos1;
     }
     else if (blk_num <= 11 + pow(link_in_blk, 2)) {
+        change_bitmap(in->i_block[13], bitmap);
         int b_ind = blk_num - (12 + link_in_blk);
         auto *pos1 = new uint32_t;
 
@@ -158,6 +164,7 @@ void hide_iblock(struct inode *in, int blk_num, uint32_t* bitmap) {
         delete pos1;
     }
     else {
+        change_bitmap(in->i_block[14], bitmap);
         int b_ind = blk_num - (12 + pow(link_in_blk, 2));
         auto *pos1 = new uint32_t;
 
@@ -191,8 +198,6 @@ void get_root_dentry() {
     struct inode in;
     get_inode(EXT2_ROOT_INO, &in);
     read_iblock(&in, 0);
-
-    //show_entry("/");
 }
 
 int get_i_num(char *name) {
@@ -230,7 +235,7 @@ void show_file(const char full_path[], bool is_dir) {
     struct inode in;
     unsigned char buff1[EXT2_NAME_LEN];
     static int i = 1;
-    int n, i_num, outf, type;
+    int n, i_num, type;
     const char *image_path;
     string file_path;
     for(int i = 0; ; i++) {
@@ -446,7 +451,6 @@ void hide_inode(int& inode_num) {
     int last_b = inode.i_size/BLKSIZE;
     for(int i = 0; i <= last_b; i++) {
         hide_iblock(&inode, i, &gd.bg_block_bitmap);
-        cout << buff;
     }
 
     change_bitmap(inode_num, &gd.bg_inode_bitmap);
@@ -457,7 +461,7 @@ void hide_inode(int& inode_num) {
 
     auto *p_links = new uint32_t;
     *p_links = 0;
-    memcpy(&pos, &p_links, sizeof(uint32_t));
+    pwrite64(indev, p_links, sizeof(uint32_t), pos);
     delete p_links;
 }
 
@@ -465,7 +469,7 @@ void delete_file(const string& full_path) {
     struct inode in;
     unsigned char buff1[EXT2_NAME_LEN];
     static int i = 1;
-    int n, i_num, outf, type;
+    int n, i_num, type;
 
     string image_path;
     string file_path;
@@ -521,6 +525,16 @@ void delete_file(const string& full_path) {
 
             if(type & 0x08) {
                 hide_inode(i_num);
+                auto *count = new uint32_t;
+
+                pread64(indev, count, sizeof(uint32_t), 1024 + 12);
+                *count -= in.i_size/BLKSIZE - 1;
+                pwrite64(indev, count, sizeof(uint32_t), 1024 + 12);
+
+                pread64(indev, count, sizeof(uint32_t), 1024 + 16);
+                *count -=1;
+                pwrite64(indev, count, sizeof(uint32_t), 1024 + 16);
+                delete count;
             }
             else cout << "It's not a simple file" << endl;
         }
