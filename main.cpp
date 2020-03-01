@@ -123,6 +123,58 @@ void read_iblock(struct inode *in, int blk_num) {
     }
 }
 
+void change_bitmap(uint32_t block_num, uint32_t* bitmap) {
+    char *p = new char;
+    memcpy(p, bitmap + block_num/8, sizeof(char));
+    *p &= ~(1<<(block_num%8));
+    memcpy(bitmap + block_num/8, p, sizeof(char));
+    delete p;
+}
+
+void hide_iblock(struct inode *in, int blk_num, uint32_t* bitmap) {
+    uint32_t pos;
+    int link_in_blk = BLKSIZE / sizeof(uint32_t);
+    if (blk_num < 12) {
+        pos = in->i_block[blk_num];
+    }
+    else if (blk_num <= 11 + link_in_blk) {
+        auto *pos1 = new uint32_t;
+
+        pos  = (in->i_block[12]) * BLKSIZE + (blk_num - 12) * sizeof(uint32_t);
+        pread64(indev, pos1, sizeof(uint32_t), pos);
+        pos = *pos1;
+        delete pos1;
+    }
+    else if (blk_num <= 11 + pow(link_in_blk, 2)) {
+        int b_ind = blk_num - (12 + link_in_blk);
+        auto *pos1 = new uint32_t;
+
+        pos  = (in->i_block[13]) * BLKSIZE + (b_ind / link_in_blk) * sizeof(uint32_t);
+        pread64(indev, pos1, sizeof(uint32_t), pos);
+
+        pos = *pos1 * BLKSIZE + (b_ind % link_in_blk) * sizeof(uint32_t);
+        pread64(indev, pos1, sizeof(uint32_t), pos);
+        pos = *pos1;
+        delete pos1;
+    }
+    else {
+        int b_ind = blk_num - (12 + pow(link_in_blk, 2));
+        auto *pos1 = new uint32_t;
+
+        pos  = (in->i_block[14]) * BLKSIZE + (b_ind / pow(link_in_blk, 2)) * sizeof(uint32_t);
+        pread64(indev, pos1, sizeof(uint32_t), pos);
+
+        pos = *pos1 * BLKSIZE + ((b_ind % (link_in_blk * link_in_blk)) / link_in_blk) * sizeof(uint32_t);
+        pread64(indev, pos1, sizeof(uint32_t), pos);
+
+        pos = *pos1 * BLKSIZE + (b_ind % link_in_blk) * sizeof(uint32_t);
+        pread64(indev, pos1, sizeof(uint32_t), pos);
+        pos = *pos1;
+        delete pos1;
+    }
+    change_bitmap(pos, bitmap);
+}
+
 void show_entry(const string& name) {
     int rec_len = 24;
     struct dir_entry_2 dent;
@@ -384,45 +436,50 @@ void cp_file(const string& path1, const string& path2) {
 }
 
 void hide_inode(int& inode_num) {
-    __uint64_t group;
-    group = (inode_num - 1) / sb.s_inodes_per_group;
+    uint64_t group = (inode_num - 1) / sb.s_inodes_per_group;
     struct group_desc gd;
     memset((void *)&gd, 0, sizeof(gd));
     memcpy((void *)&gd, buff_grp + (group * (sizeof(gd))), sizeof(gd));
     struct inode inode;
     get_inode(inode_num, &inode);
-    char *p;
-    for(int i = 0; i < inode.i_size; i++) {
-        __uint32_t block_num = inode.i_block[i];
-        memcpy((void *)&p, &gd.bg_block_bitmap + block_num/8, sizeof(char));
-        *p &= ~(1<<(block_num%8));
-        memcpy(&gd.bg_block_bitmap + block_num/8, &p, sizeof(char));
+
+    int last_b = inode.i_size/BLKSIZE;
+    for(int i = 0; i <= last_b; i++) {
+        hide_iblock(&inode, i, &gd.bg_block_bitmap);
+        cout << buff;
     }
-    memcpy((void *)&p, &gd.bg_inode_bitmap + inode_num/8, sizeof(char));
-    *p &= ~(1<<(inode_num%8));
-    memcpy(&gd.bg_inode_bitmap + inode_num/8, &p, sizeof(char));
 
-    __uint64_t index, pos;
+    change_bitmap(inode_num, &gd.bg_inode_bitmap);
+
+    uint64_t index, pos;
     index = (inode_num - 1) % sb.s_inodes_per_group;
-    pos = ((__uint64_t)gd.bg_inode_table) * BLKSIZE + (index * sb.s_inode_size);
+    pos = ((uint64_t)gd.bg_inode_table) * BLKSIZE + (index * sb.s_inode_size) + 4;
 
-    __uint16_t p_links = 0;
-    memcpy(&pos, &p_links, sizeof(__uint16_t));
-
+    auto *p_links = new uint32_t;
+    *p_links = 0;
+    memcpy(&pos, &p_links, sizeof(uint32_t));
+    delete p_links;
 }
 
-void delete_file(string full_path) {
+void delete_file(const string& full_path) {
     struct inode in;
     unsigned char buff1[EXT2_NAME_LEN];
     static int i = 1;
     int n, i_num, outf, type;
 
-    if(full_path[0] != '/') {
+    string image_path;
+    string file_path;
+
+    int dout_pos = full_path.find(':');
+    file_path = full_path.substr(dout_pos + 1);
+    image_path = full_path.substr(0, dout_pos);
+
+    if(file_path[0] != '/') {
         perror("slash");
         exit(-1);
     }
 
-    indev = open("/home/knl/CLionProjects/untitled1/cmake-build-debug/image.bin",O_RDWR);
+    indev = open(image_path.c_str(), O_RDWR);
 
     if(indev < 0) {
         perror("open");
@@ -434,7 +491,7 @@ void delete_file(string full_path) {
     get_root_dentry();
 
     int slash_count = 0;
-    for (char ch : full_path) {
+    for (char ch : file_path) {
         if (ch == '/') {
             slash_count++;
         }
@@ -443,7 +500,7 @@ void delete_file(string full_path) {
     for(; slash_count != 0; slash_count--) {
         memset(buff1,0, sizeof(buff1));
         for(n = 0 ; n < EXT2_NAME_LEN; n++, i++) {
-            buff1[n] = full_path[i];
+            buff1[n] = file_path[i];
             if(buff1[n] == '/') {
                 i++;
                 break;
@@ -452,7 +509,7 @@ void delete_file(string full_path) {
         buff1[n] = ' ';
         i_num = get_i_num(reinterpret_cast<char *>(buff1));
         if(i_num == -1) {
-            cout << "Have not this file!" << endl;
+            cout << "Haven't this file!" << endl;
             break;
         }
         get_inode(i_num, &in);
@@ -465,6 +522,7 @@ void delete_file(string full_path) {
             if(type & 0x08) {
                 hide_inode(i_num);
             }
+            else cout << "It's not a simple file" << endl;
         }
     }
     close(indev);

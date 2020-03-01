@@ -23,6 +23,8 @@ unistd.h
 -
 cstdint
 -
+cmath
+-
 config.h
 /home/knl/CLionProjects/untitled1/config.h
 structures.h
