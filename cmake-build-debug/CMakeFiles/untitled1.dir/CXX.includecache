@@ -1,0 +1,34 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/knl/CLionProjects/untitled1/config.h
+
+/home/knl/CLionProjects/untitled1/main.cpp
+iostream
+-
+string
+-
+cstring
+-
+cstdio
+-
+fcntl.h
+-
+unistd.h
+-
+cstdint
+-
+config.h
+/home/knl/CLionProjects/untitled1/config.h
+structures.h
+/home/knl/CLionProjects/untitled1/structures.h
+
+/home/knl/CLionProjects/untitled1/structures.h
+cstdint
+-
+
