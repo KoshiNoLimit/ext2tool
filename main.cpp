@@ -157,6 +157,7 @@ void hide_iblock(struct inode *in, int blk_num, uint32_t* bitmap) {
 
         pos  = (in->i_block[13]) * BLKSIZE + (b_ind / link_in_blk) * sizeof(uint32_t);
         pread64(indev, pos1, sizeof(uint32_t), pos);
+        change_bitmap(in->i_block[*pos1], bitmap);
 
         pos = *pos1 * BLKSIZE + (b_ind % link_in_blk) * sizeof(uint32_t);
         pread64(indev, pos1, sizeof(uint32_t), pos);
@@ -170,9 +171,11 @@ void hide_iblock(struct inode *in, int blk_num, uint32_t* bitmap) {
 
         pos  = (in->i_block[14]) * BLKSIZE + (b_ind / pow(link_in_blk, 2)) * sizeof(uint32_t);
         pread64(indev, pos1, sizeof(uint32_t), pos);
+        change_bitmap(in->i_block[*pos1], bitmap);
 
         pos = *pos1 * BLKSIZE + ((b_ind % (link_in_blk * link_in_blk)) / link_in_blk) * sizeof(uint32_t);
         pread64(indev, pos1, sizeof(uint32_t), pos);
+        change_bitmap(in->i_block[*pos1], bitmap);
 
         pos = *pos1 * BLKSIZE + (b_ind % link_in_blk) * sizeof(uint32_t);
         pread64(indev, pos1, sizeof(uint32_t), pos);
@@ -216,7 +219,32 @@ int get_i_num(char *name) {
 
 
 
-
+int block_count(int b_count) {
+    int link_in_blk = BLKSIZE / sizeof(uint32_t);
+    if ( b_count < 13 ) {
+        return b_count;
+    } else if ( b_count < 13 + link_in_blk) {
+        return b_count + 1;
+    } else if ( b_count < 13 + link_in_blk + pow(link_in_blk, 2)) {
+        int link_count = ((b_count  - (12  + link_in_blk)) / link_in_blk) + 1 + 1;
+        if((b_count  - (12  + link_in_blk)) % link_in_blk > 0) link_count ++;
+        return b_count + link_count;
+    } else  {
+        int link_count = (b_count -(12 + link_in_blk + link_in_blk * link_in_blk)) / (link_in_blk * link_in_blk);
+        link_count += link_count * link_in_blk;
+        int link2_count = (b_count -(12 + link_in_blk + link_in_blk * link_in_blk)) % (link_in_blk * link_in_blk);
+        if (link2_count > 0) {
+            link_count += link2_count / link_in_blk;
+            if (link2_count % link_in_blk > 0) {
+                link_count += link2_count % link_in_blk;
+                link_count++;
+            }
+            link_count++;
+        }
+        link_count += 1 + link_in_blk;
+        return  b_count + link_count;
+    }
+}
 
 void create_disk (char name[], int size) {
     string ddCom = "dd if=/dev/zero of=" + string(name) + ".bin bs=512 count=" + to_string(size * 2000);
@@ -289,7 +317,8 @@ void show_file(const char full_path[], bool is_dir) {
         buff1[n] = ' ';
         i_num = get_i_num(reinterpret_cast<char *>(buff1));
         if(i_num == -1) {
-            cout << "Haven't this file!" << endl;
+
+            cout << "Haven't this file! " << buff1 << endl;
             break;
         }
         get_inode(i_num, &in);
@@ -309,9 +338,10 @@ void show_file(const char full_path[], bool is_dir) {
                 case(0x08) :
                     if(!is_dir) {
                         int last_b = in.i_size/BLKSIZE;
+                        cout << in.i_blocks;
                         for(int i = 0; i <= last_b; i++) {
                             read_iblock(&in, i);
-                            cout << buff;
+                            //cout << buff;
                         }
                     } else cout << "It's a simple file" << endl;
                     break;
@@ -528,11 +558,13 @@ void delete_file(const string& full_path) {
                 auto *count = new uint32_t;
 
                 pread64(indev, count, sizeof(uint32_t), 1024 + 12);
-                *count -= in.i_size/BLKSIZE - 1;
+                int b_count = in.i_size/BLKSIZE;
+                if (in.i_size % BLKSIZE > 0) b_count++;
+                *count += block_count(b_count);
                 pwrite64(indev, count, sizeof(uint32_t), 1024 + 12);
 
                 pread64(indev, count, sizeof(uint32_t), 1024 + 16);
-                *count -=1;
+                *count +=1;
                 pwrite64(indev, count, sizeof(uint32_t), 1024 + 16);
                 delete count;
             }
