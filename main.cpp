@@ -215,10 +215,6 @@ int get_i_num(char *name) {
     return dent.inode;
 }
 
-
-
-
-
 int block_count(int b_count) {
     int link_in_blk = BLKSIZE / sizeof(uint32_t);
     if ( b_count < 13 ) {
@@ -256,7 +252,6 @@ void create_disk (char name[], int size) {
     char mkChar[mkCom.length()+1];
     strcpy(mkChar, mkCom.c_str());
     system(mkChar);
-    cout << mkCom <<endl;
 }
 
 void show_file(const char full_path[], bool is_dir) {
@@ -338,10 +333,9 @@ void show_file(const char full_path[], bool is_dir) {
                 case(0x08) :
                     if(!is_dir) {
                         int last_b = in.i_size/BLKSIZE;
-                        cout << in.i_blocks;
                         for(int i = 0; i <= last_b; i++) {
                             read_iblock(&in, i);
-                            //cout << buff;
+                            cout << buff;
                         }
                     } else cout << "It's a simple file" << endl;
                     break;
@@ -499,7 +493,7 @@ void delete_file(const string& full_path) {
     struct inode in;
     unsigned char buff1[EXT2_NAME_LEN];
     static int i = 1;
-    int n, i_num, type;
+    int n, i_num, dir_inum, type;
 
     string image_path;
     string file_path;
@@ -549,6 +543,8 @@ void delete_file(const string& full_path) {
         get_inode(i_num, &in);
 
         read_iblock(&in, 0);
+
+        if(slash_count == 2) dir_inum = i_num;
 
         if(slash_count == 1) {
             type = ((in.i_mode & 0xF000) >> 12);
